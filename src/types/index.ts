@@ -8,7 +8,7 @@ export interface Category {
 export interface Expense {
   id: string;
   amount: number;
-  description: string;
+  tag: string;
   category_id: string;
   date: string;
   category?: Category;

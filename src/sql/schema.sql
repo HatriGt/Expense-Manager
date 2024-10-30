@@ -31,7 +31,7 @@ CREATE TABLE expenses (
   user_id UUID REFERENCES users(id) ON DELETE CASCADE NOT NULL,
   category_id UUID REFERENCES categories(id) ON DELETE SET NULL,
   amount DECIMAL(10,2) NOT NULL CHECK (amount > 0),
-  description TEXT,
+  tag TEXT,
   date DATE NOT NULL,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL,
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
@@ -185,3 +185,20 @@ CREATE INDEX idx_categories_user_id ON categories(user_id);
 CREATE INDEX idx_expenses_user_id ON expenses(user_id);
 CREATE INDEX idx_expenses_category_id ON expenses(category_id);
 CREATE INDEX idx_weekly_limits_user_id ON weekly_limits(user_id);
+
+-- Update the expenses table to make tag optional
+ALTER TABLE expenses ALTER COLUMN tag DROP NOT NULL;
+
+-- Add this at the end of your schema.sql file
+CREATE OR REPLACE FUNCTION get_distinct_tags(user_id_param UUID)
+RETURNS TABLE (tag TEXT) AS $$
+BEGIN
+  RETURN QUERY
+  SELECT DISTINCT e.tag
+  FROM expenses e
+  WHERE e.user_id = user_id_param
+    AND e.tag IS NOT NULL
+    AND e.tag != ''
+  ORDER BY e.tag;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
