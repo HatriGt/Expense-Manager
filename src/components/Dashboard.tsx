@@ -4,7 +4,7 @@ import {
   BarChart2, 
   PlusCircle, 
   Bell, 
-  User,
+  User as UserIcon,
   Search,
   Plus
 } from 'lucide-react';
@@ -14,6 +14,8 @@ import { Category, Expense, WeeklyLimit } from '../types';
 import ExpenseList from './ExpenseList';
 import AddExpenseModal from './AddExpenseModal';
 import AddCategoryModal from './AddCategoryModal';
+import { User } from '@supabase/supabase-js';
+import ExpensesModal from './ExpensesModal';
 
 export default function Dashboard() {
   const [expenses, setExpenses] = useState<Expense[]>([]);
@@ -24,8 +26,12 @@ export default function Dashboard() {
   const [totalExpense, setTotalExpense] = useState(0);
   const [lastMonthDiff, setLastMonthDiff] = useState(0);
   const [weeklyData, setWeeklyData] = useState<any[]>([]);
+  const [user, setUser] = useState<User | null>(null);
+  const [isExpensesModalOpen, setIsExpensesModalOpen] = useState(false);
+  const [allExpenses, setAllExpenses] = useState<Expense[]>([]);
 
   useEffect(() => {
+    fetchUserData();
     fetchData();
   }, []);
 
@@ -46,28 +52,41 @@ export default function Dashboard() {
       
       if (limitData) setWeeklyLimit(limitData);
 
-      // Fetch expenses with categories
-      const { data: expensesData } = await supabase
+      // Fetch recent expenses for the dashboard view (limit 6)
+      const { data: recentExpenses } = await supabase
+        .from('expenses')
+        .select(`
+          *,
+          category:categories(*)
+        `)
+        .order('created_at', { ascending: false })
+        .limit(6);
+
+      if (recentExpenses) {
+        setExpenses(recentExpenses);
+      }
+
+      // Fetch all expenses for calculations and ExpensesModal
+      const { data: allExpensesData } = await supabase
         .from('expenses')
         .select(`
           *,
           category:categories(*)
         `)
         .order('date', { ascending: false });
-
-      if (expensesData) {
-        setExpenses(expensesData);
+      
+      if (allExpensesData) {
+        setAllExpenses(allExpensesData);
         
-        // Calculate total expense
-        const total = expensesData.reduce((sum: number, expense: Expense) => sum + expense.amount, 0);
+        // Calculate total
+        const total = allExpensesData.reduce((sum, expense) => sum + Number(expense.amount), 0);
         setTotalExpense(total);
 
-        // Calculate weekly data
-        const weeklyExpenses = calculateWeeklyExpenses(expensesData);
+        // Calculate weekly data and last month difference
+        const weeklyExpenses = calculateWeeklyExpenses(allExpensesData);
         setWeeklyData(weeklyExpenses);
 
-        // Calculate last month difference
-        const lastMonthTotal = calculateLastMonthTotal(expensesData);
+        const lastMonthTotal = calculateLastMonthTotal(allExpensesData);
         setLastMonthDiff(total - lastMonthTotal);
       }
     } catch (error) {
@@ -92,7 +111,7 @@ export default function Dashboard() {
       
       if (weekDiff < 5) {
         const weekKey = `W${weekDiff + 1}`;
-        weeks[weekKey] += expense.amount;
+        weeks[weekKey] += Number(expense.amount);
       }
     });
 
@@ -112,21 +131,35 @@ export default function Dashboard() {
         const expenseDate = new Date(expense.date);
         return expenseDate >= lastMonth && expenseDate <= lastMonthEnd;
       })
-      .reduce((sum, expense) => sum + expense.amount, 0);
+      .reduce((sum, expense) => sum + Number(expense.amount), 0);
+  };
+
+  const fetchUserData = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    setUser(user);
   };
 
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="max-w-7xl mx-auto px-4 py-6">
-        <header className="flex justify-between items-center mb-8">
-          <div className="flex items-center space-x-4">
-            {/* <img src="/assets/LogoRounded.png" alt="Logo" className="h-28" /> */}
-            <div>
-              <p className="text-gray-500 text-lg lg:text-xl">Hello</p>
-              <h2 className="text-xl font-bold lg:text-2xl">Blaszczykowski</h2>
+        <header className="flex justify-between items-center mb-8 bg-white rounded-xl p-6 shadow-sm">
+          <div className="flex items-center space-x-6">
+            <div className="flex flex-col">
+              <span className="text-gray-400 text-sm font-medium tracking-wider uppercase">Welcome back</span>
+              <h1 className="text-3xl font-bold bg-gradient-to-r from-indigo-500 to-pink-500 bg-clip-text text-transparent">
+                {user?.email?.split('@')[0] || 'User'}
+              </h1>
+              <span className="text-gray-500 text-sm mt-1">Track your expenses with ease</span>
             </div>
           </div>
-          <Search className="h-6 w-6 text-gray-500" />
+          <div className="mt-4 relative">
+            <Search className="h-5 w-5 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+            <input 
+              type="text" 
+              placeholder="Search expenses..." 
+              className="w-full pl-10 pr-4 py-2 bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent shadow-sm"
+            />
+          </div>
         </header>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -144,7 +177,15 @@ export default function Dashboard() {
             </div>
 
             <div className="space-y-4">
-              <h3 className="text-xl font-bold">Expense List</h3>
+              <div className="flex justify-between items-center">
+                <h3 className="text-xl font-bold">Recent Expenses</h3>
+                <button
+                  onClick={() => setIsExpensesModalOpen(true)}
+                  className="text-indigo-600 hover:text-indigo-700 text-sm font-medium"
+                >
+                  See All
+                </button>
+              </div>
               <ExpenseList expenses={expenses} />
             </div>
           </div>
@@ -224,7 +265,7 @@ export default function Dashboard() {
               </button>
             </div>
             <Bell className="nav-icon" />
-            <User className="nav-icon" />
+            <UserIcon className="nav-icon" />
           </div>
         </div>
       </nav>
@@ -240,6 +281,13 @@ export default function Dashboard() {
         isOpen={isAddCategoryModalOpen}
         onClose={() => setIsAddCategoryModalOpen(false)}
         onCategoryAdded={fetchData}
+      />
+
+      <ExpensesModal
+        isOpen={isExpensesModalOpen}
+        onClose={() => setIsExpensesModalOpen(false)}
+        expenses={allExpenses}
+        categories={categories}
       />
     </div>
   );

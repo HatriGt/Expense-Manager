@@ -47,7 +47,7 @@ export default function ExpenseList({ expenses }: ExpenseListProps) {
                     </div>
                     <div>
                       <p className="font-medium">{expense.category?.name}</p>
-                      <p className="text-sm text-gray-500">{expense.description}</p>
+                      <p className="text-sm text-gray-500">{expense.tag}</p>
                     </div>
                   </div>
                   <p className="text-red-500">-${expense.amount.toFixed(2)}</p>
