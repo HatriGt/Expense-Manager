@@ -202,3 +202,21 @@ BEGIN
   ORDER BY e.tag;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
+
+
+-- Create a regular view with search vector
+CREATE VIEW expenses_with_categories AS
+SELECT 
+  e.id,
+  e.user_id,
+  e.created_at,
+  e.amount,
+  e.date,
+  e.tag,
+  c.name as category_name,
+  c.id as category_id,
+  c.icon as category_icon,
+  c.color as category_color,
+  to_tsvector('english', coalesce(c.name, '') || ' ' || coalesce(e.tag, '')) as fts
+FROM expenses e
+LEFT JOIN categories c ON e.category_id = c.id;
