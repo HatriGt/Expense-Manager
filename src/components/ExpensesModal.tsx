@@ -6,11 +6,13 @@ import { format } from 'date-fns';
 import { Dialog, Switch } from '@headlessui/react';
 import { supabase } from '../lib/supabase';
 import { LucideProps } from 'lucide-react';
+import EditExpenseModal from './EditExpenseModal';
 
 interface ExpensesModalProps {
   isOpen: boolean;
   onClose: () => void;
   categories: Category[];
+  expenses: Expense[];
 }
 
 type SortType = 'date' | 'amount';
@@ -65,7 +67,7 @@ interface SearchTag {
   text: string;
 }
 
-export default function ExpensesModal({ isOpen, onClose, categories }: ExpensesModalProps) {
+export default function ExpensesModal({ isOpen, onClose, categories, expenses }: ExpensesModalProps) {
   const getCurrentMonthRange = () => {
     const today = new Date();
     const start = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-01`;
@@ -87,6 +89,8 @@ export default function ExpensesModal({ isOpen, onClose, categories }: ExpensesM
   const [searchTerms, setSearchTerms] = useState<SearchTag[]>([]);
   const [inputValue, setInputValue] = useState('');
   const [isSearching, setIsSearching] = useState(false);
+  const [selectedExpense, setSelectedExpense] = useState<Expense | null>(null);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
@@ -126,9 +130,9 @@ export default function ExpensesModal({ isOpen, onClose, categories }: ExpensesM
       }
 
       if (sortBy === 'date') {
-        query = query.order('created_at', { ascending: sortOrder === 'asc' });
+        query = query.order('date', { ascending: sortOrder === 'asc' }).order('created_at', { ascending: false });
       } else {
-        query = query.order('amount', { ascending: sortOrder === 'asc' });
+        query = query.order('amount', { ascending: sortOrder === 'asc' }).order('created_at', { ascending: false });
       }
 
       const { data, error } = await query;
@@ -163,43 +167,6 @@ export default function ExpensesModal({ isOpen, onClose, categories }: ExpensesM
   if (!isOpen) return null;
 
   const groupedExpenses = groupExpensesByDate(filteredExpenses);
-
-  const MobileFilters = () => (
-    <div className="flex gap-2 md:hidden">
-      <button
-        onClick={() => setIsCategorySheetOpen(true)}
-        className="flex-1 px-3 py-2 border rounded-md text-sm flex items-center justify-center gap-2"
-      >
-        <Filter className="h-4 w-4" />
-        {selectedCategories[0] 
-          ? categories.find(c => c.id === selectedCategories[0])?.name 
-          : 'Category'}
-      </button>
-      
-      <button
-        onClick={() => setIsDateSheetOpen(true)}
-        className="flex-1 px-3 py-2 border rounded-md text-sm flex items-center justify-center gap-2"
-      >
-        <Calendar className="h-4 w-4" />
-        {format(new Date(dateRange.start), 'MMM d')} - {format(new Date(dateRange.end), 'MMM d')}
-      </button>
-      
-      <button
-        onClick={() => setIsSortSheetOpen(true)}
-        className="flex-1 px-3 py-2 border rounded-md text-sm flex items-center justify-center gap-2"
-      >
-        <ArrowUpDown className="h-4 w-4" />
-        Sort
-      </button>
-    </div>
-  );
-
-  const DesktopFilters = () => (
-    <div className="hidden md:flex items-center gap-2">
-      {/* Existing Menu, Popover components for desktop */}
-      {/* ... Your existing desktop filter components ... */}
-    </div>
-  );
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter' && inputValue) {
@@ -239,101 +206,176 @@ export default function ExpensesModal({ isOpen, onClose, categories }: ExpensesM
     fetchFilteredExpenses(searchConditions).finally(() => setIsSearching(false));
   };
 
+  const handleExpenseClick = (expense: ExpenseWithCategory) => {
+    // Convert ExpenseWithCategory to Expense format
+    const fullExpense: Expense = {
+      id: expense.id,
+      amount: expense.amount,
+      tag: expense.tag,
+      category_id: expense.category_id,
+      date: expense.date,
+      created_at: expense.created_at,
+      user_id: expense.user_id,
+      category: {
+        id: expense.category_id,
+        name: expense.category_name,
+        icon: expense.category_icon,
+        color: expense.category_color,
+        user_id: expense.user_id
+      }
+    };
+    setSelectedExpense(fullExpense);
+    setIsEditModalOpen(true);
+  };
+
+  const handleExpenseUpdate = () => {
+    fetchFilteredExpenses();
+  };
+
   return (
     <>
-      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-        <div className="bg-white rounded-lg w-full max-w-2xl h-[90vh] flex flex-col relative">
+      <div className="fixed inset-0 bg-black/30 flex items-center justify-center p-4 z-50">
+        <div className="bg-white rounded-2xl w-full max-w-2xl h-[90vh] flex flex-col relative shadow-xl border border-gray-100">
           {/* Header */}
-          <div className="p-4 border-b">
+          <div className="p-6 border-b bg-white rounded-t-2xl">
             <div className="flex justify-between items-center">
-              <h2 className="text-xl font-bold">All Expenses</h2>
+              <div>
+                <h2 className="text-3xl font-bold bg-gradient-to-r from-indigo-500 to-pink-500 bg-clip-text text-transparent">
+                  All Expenses
+                </h2>
+                <div className="flex items-center gap-2 mt-2">
+                  <p className="text-gray-500 text-sm">Total:</p>
+                  <p className="text-lg font-semibold bg-gradient-to-r from-indigo-500 to-pink-500 bg-clip-text text-transparent">
+                    ${totalExpenses.toFixed(2)}
+                  </p>
+                </div>
+              </div>
               <button
                 onClick={onClose}
-                className="text-gray-400 hover:text-gray-600"
+                className="p-2 rounded-xl hover:bg-gray-50 text-gray-400 hover:text-gray-600 transition-colors"
                 aria-label="Close modal"
               >
                 <X className="h-5 w-5" />
               </button>
             </div>
-            <p className="text-gray-600 mt-2">Total: ${totalExpenses.toFixed(2)}</p>
           </div>
 
-          {/* Filters Section */}
-          <div className="p-4 border-b bg-white sticky top-0 z-10">
-            <div className="mb-4">
-              <div className="relative">
-                <div className="flex flex-wrap items-center gap-2 w-full pl-10 pr-4 py-2 border rounded-lg focus-within:ring-2 focus-within:ring-indigo-500 focus-within:border-transparent">
-                  {searchTerms.map(term => (
-                    <span
-                      key={term.id}
-                      className="flex items-center gap-1 bg-indigo-100 text-indigo-800 px-2 py-1 rounded-full text-sm"
+          {/* Search and Filters Section */}
+          <div className="px-6 py-4 border-b bg-white sticky top-0 z-10 space-y-4">
+            {/* Search Bar */}
+            <div className="relative group">
+              <div className="flex flex-wrap items-center gap-2 w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl focus-within:ring-2 focus-within:ring-indigo-500/50 focus-within:border-transparent bg-white transition-colors">
+                {searchTerms.map(term => (
+                  <span
+                    key={term.id}
+                    className="flex items-center gap-1 bg-indigo-50 text-indigo-700 px-3 py-1.5 rounded-lg text-sm font-medium"
+                  >
+                    {term.text}
+                    <button
+                      onClick={() => removeSearchTerm(term.id)}
+                      className="hover:text-indigo-900 transition-colors ml-1"
+                      aria-label="Remove search term"
                     >
-                      {term.text}
-                      <button
-                        onClick={() => removeSearchTerm(term.id)}
-                        className="hover:text-indigo-600"
-                        aria-label="Remove search term"
-                      >
-                        <X className="h-3 w-3" />
-                      </button>
-                    </span>
-                  ))}
-                  <input
-                    type="text"
-                    placeholder={searchTerms.length === 0 ? "Search categories or tags..." : ""}
-                    value={inputValue}
-                    onChange={(e) => setInputValue(e.target.value)}
-                    onKeyDown={handleKeyDown}
-                    className="flex-1 outline-none min-w-[150px]"
-                  />
-                </div>
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  {isSearching ? (
-                    <div className="h-4 w-4 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
-                  ) : (
-                    <Search className="h-4 w-4 text-gray-400" />
-                  )}
-                </div>
+                      <X className="h-3 w-3" />
+                    </button>
+                  </span>
+                ))}
+                <input
+                  type="text"
+                  placeholder={searchTerms.length === 0 ? "Search categories or tags..." : ""}
+                  value={inputValue}
+                  onChange={(e) => setInputValue(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  className="flex-1 outline-none min-w-[150px] bg-transparent placeholder-gray-400"
+                />
+              </div>
+              <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none">
+                {isSearching ? (
+                  <div className="h-4 w-4 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <Search className="h-4 w-4 text-gray-400" />
+                )}
               </div>
             </div>
-            <MobileFilters />
-            <DesktopFilters />
+
+            {/* Filter Buttons */}
+            <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+              <button
+                onClick={() => setIsCategorySheetOpen(true)}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-gray-200 hover:bg-gray-50 transition-colors whitespace-nowrap text-sm group"
+              >
+                <Filter className="h-4 w-4 text-gray-400 group-hover:text-indigo-500 transition-colors" />
+                <span className="text-gray-600 group-hover:text-gray-900 transition-colors">
+                  {selectedCategories[0] 
+                    ? categories.find(c => c.id === selectedCategories[0])?.name 
+                    : 'Category'}
+                </span>
+              </button>
+              
+              <button
+                onClick={() => setIsDateSheetOpen(true)}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-gray-200 hover:bg-gray-50 transition-colors whitespace-nowrap text-sm group"
+              >
+                <Calendar className="h-4 w-4 text-gray-400 group-hover:text-indigo-500 transition-colors" />
+                <span className="text-gray-600 group-hover:text-gray-900 transition-colors">
+                  {format(new Date(dateRange.start), 'MMM d')} - {format(new Date(dateRange.end), 'MMM d')}
+                </span>
+              </button>
+              
+              <button
+                onClick={() => setIsSortSheetOpen(true)}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-gray-200 hover:bg-gray-50 transition-colors whitespace-nowrap text-sm group"
+              >
+                <ArrowUpDown className="h-4 w-4 text-gray-400 group-hover:text-indigo-500 transition-colors" />
+                <span className="text-gray-600 group-hover:text-gray-900 transition-colors">
+                  {sortBy === 'date' ? 'Date' : 'Amount'} ({sortOrder === 'asc' ? '↑' : '↓'})
+                </span>
+              </button>
+            </div>
           </div>
 
           {/* Expense List */}
-          <div className="flex-1 overflow-auto">
-            <div className="divide-y">
+          <div className="flex-1 overflow-auto bg-white">
+            <div className="divide-y divide-gray-100">
               {Object.entries(groupedExpenses).map(([date, dateExpenses]) => (
-                <div key={date} className="p-4">
-                  <p className="text-sm text-gray-600 mb-2">{date}</p>
-                  <div className="space-y-3">
+                <div key={date} className="p-4 hover:bg-gray-50 transition-colors">
+                  <p className="text-sm font-medium text-gray-500 mb-3 px-2">{date}</p>
+                  <div className="space-y-2">
                     {(dateExpenses as ExpenseWithCategory[]).map((expense) => {
                       const IconComponent = expense.category_icon ? 
                         (Icons[expense.category_icon as keyof typeof Icons] as React.FC<LucideProps>) : 
                         null;
                       
                       return (
-                        <div key={expense.id} className="flex items-center justify-between">
+                        <div 
+                          key={expense.id} 
+                          className="flex items-center justify-between p-3 rounded-xl hover:bg-white transition-colors cursor-pointer group"
+                          onClick={() => handleExpenseClick(expense)}
+                        >
                           <div className="flex items-center space-x-3">
                             <div 
-                              className="p-2 rounded-lg" 
-                              style={{ backgroundColor: `${expense.category_color}20` }}
+                              className="p-2.5 rounded-xl"
+                              style={{ backgroundColor: `${expense.category_color}15` }}
                             >
                               {IconComponent && (
                                 <IconComponent
-                                  className="h-4 w-4"
+                                  className="h-5 w-5"
                                   style={{ color: expense.category_color }}
                                 />
                               )}
                             </div>
                             <div>
-                              <p className="font-medium text-sm">{expense.category_name}</p>
+                              <p className="font-medium text-gray-900 group-hover:text-indigo-600 transition-colors">
+                                {expense.category_name}
+                              </p>
                               {expense.tag && (
-                                <p className="text-xs text-gray-500">{expense.tag}</p>
+                                <p className="text-sm text-gray-500">
+                                  {expense.tag}
+                                </p>
                               )}
                             </div>
                           </div>
-                          <p className="text-sm font-medium text-red-500">
+                          <p className="text-base font-semibold text-red-500">
                             -${expense.amount.toFixed(2)}
                           </p>
                         </div>
@@ -346,6 +388,17 @@ export default function ExpensesModal({ isOpen, onClose, categories }: ExpensesM
           </div>
         </div>
       </div>
+
+      <EditExpenseModal
+        isOpen={isEditModalOpen}
+        onClose={() => {
+          setIsEditModalOpen(false);
+          setSelectedExpense(null);
+        }}
+        expense={selectedExpense}
+        categories={categories}
+        onExpenseUpdated={handleExpenseUpdate}
+      />
 
       <CenterModal
         isOpen={isCategorySheetOpen}

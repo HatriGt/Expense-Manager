@@ -6,7 +6,9 @@ import {
   Bell, 
   User as UserIcon,
   Search,
-  Plus
+  Plus,
+  ArrowUp,
+  ArrowDown
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer } from 'recharts';
 import { supabase } from '../lib/supabase';
@@ -16,6 +18,7 @@ import AddExpenseModal from './AddExpenseModal';
 import AddCategoryModal from './AddCategoryModal';
 import { User } from '@supabase/supabase-js';
 import ExpensesModal from './ExpensesModal';
+import EditExpenseModal from './EditExpenseModal';
 
 export default function Dashboard() {
   const [expenses, setExpenses] = useState<Expense[]>([]);
@@ -29,6 +32,8 @@ export default function Dashboard() {
   const [user, setUser] = useState<User | null>(null);
   const [isExpensesModalOpen, setIsExpensesModalOpen] = useState(false);
   const [allExpenses, setAllExpenses] = useState<Expense[]>([]);
+  const [selectedExpense, setSelectedExpense] = useState<Expense | null>(null);
+  const [isEditExpenseModalOpen, setIsEditExpenseModalOpen] = useState(false);
 
   useEffect(() => {
     fetchUserData();
@@ -78,16 +83,16 @@ export default function Dashboard() {
       if (allExpensesData) {
         setAllExpenses(allExpensesData);
         
-        // Calculate total
-        const total = allExpensesData.reduce((sum, expense) => sum + Number(expense.amount), 0);
-        setTotalExpense(total);
+        // Calculate current month total instead of all-time total
+        const currentMonthTotal = calculateCurrentMonthTotal(allExpensesData);
+        setTotalExpense(currentMonthTotal);
 
         // Calculate weekly data and last month difference
         const weeklyExpenses = calculateWeeklyExpenses(allExpensesData);
         setWeeklyData(weeklyExpenses);
 
         const lastMonthTotal = calculateLastMonthTotal(allExpensesData);
-        setLastMonthDiff(total - lastMonthTotal);
+        setLastMonthDiff(currentMonthTotal - lastMonthTotal);
       }
     } catch (error) {
       console.error('Error fetching data:', error);
@@ -134,13 +139,31 @@ export default function Dashboard() {
       .reduce((sum, expense) => sum + Number(expense.amount), 0);
   };
 
+  const calculateCurrentMonthTotal = (expensesData: Expense[]) => {
+    const today = new Date();
+    const currentMonthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+    const currentMonthEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+
+    return expensesData
+      .filter((expense) => {
+        const expenseDate = new Date(expense.date);
+        return expenseDate >= currentMonthStart && expenseDate <= currentMonthEnd;
+      })
+      .reduce((sum, expense) => sum + Number(expense.amount), 0);
+  };
+
   const fetchUserData = async () => {
     const { data: { user } } = await supabase.auth.getUser();
     setUser(user);
   };
 
+  const handleExpenseClick = (expense: Expense) => {
+    setSelectedExpense(expense);
+    setIsEditExpenseModalOpen(true);
+  };
+
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 pb-20">
       <div className="max-w-7xl mx-auto px-4 py-6">
         <header className="flex justify-between items-center mb-8 bg-white rounded-xl p-6 shadow-sm">
           <div className="flex items-center space-x-6">
@@ -164,14 +187,74 @@ export default function Dashboard() {
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <div className="bg-white rounded-xl p-6 shadow-sm">
-            <div className="bg-indigo-500 text-white p-6 rounded-xl mb-6">
-              <h3 className="text-lg mb-2">Expense total</h3>
-              <div className="flex items-end justify-between">
-                <div>
+            <div className="bg-white p-6 rounded-xl mb-6 shadow-lg">
+              <div className="flex justify-between items-start">
+                <div className="space-y-1">
+                  <h3 className="text-gray-500 text-sm font-medium">Current Month Expenses</h3>
                   <p className="text-3xl font-bold">${totalExpense.toFixed(2)}</p>
-                  <p className="text-sm opacity-80">
-                    {lastMonthDiff >= 0 ? '+' : '-'}${Math.abs(lastMonthDiff).toFixed(2)} than last month
-                  </p>
+                </div>
+                
+                {lastMonthDiff !== 0 && (
+                  <div className={`
+                    flex items-center gap-2 px-4 py-2 rounded-lg 
+                    ${lastMonthDiff > 0 
+                      ? 'bg-red-50' 
+                      : 'bg-green-50'
+                    }
+                  `}>
+                    <div className={`
+                      w-8 h-8 rounded-full flex items-center justify-center
+                      ${lastMonthDiff > 0 
+                        ? 'bg-red-100' 
+                        : 'bg-green-100'
+                      }
+                    `}>
+                      {lastMonthDiff > 0 
+                        ? <ArrowUp className={`h-5 w-5 text-red-600 transform transition-transform duration-300 hover:translate-y-[-2px]`} />
+                        : <ArrowDown className={`h-5 w-5 text-green-600 transform transition-transform duration-300 hover:translate-y-[2px]`} />
+                      }
+                    </div>
+                    <div className="flex flex-col">
+                      <span className={`text-sm font-medium ${
+                        lastMonthDiff > 0 ? 'text-red-600' : 'text-green-600'
+                      }`}>
+                        ${Math.abs(lastMonthDiff).toFixed(2)}
+                      </span>
+                      <span className="text-xs text-gray-500">vs last month</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="mt-4 pt-4 border-t">
+                <div className="flex items-center justify-between">
+                  <div className="w-full">
+                    <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                      <div 
+                        className={`h-full transition-all duration-500 ease-out ${
+                          lastMonthDiff === 0 
+                            ? 'bg-gray-400 w-1/2' 
+                            : lastMonthDiff > 0 
+                              ? 'bg-red-400 animate-pulse' 
+                              : 'bg-green-400'
+                        }`}
+                        style={{
+                          width: `${Math.min(
+                            Math.abs(lastMonthDiff) / (totalExpense || 1) * 100,
+                            100
+                          )}%`
+                        }}
+                      />
+                    </div>
+                    <div className="mt-2 text-xs text-gray-500">
+                      {lastMonthDiff === 0 
+                        ? 'Spending unchanged from last month'
+                        : lastMonthDiff > 0
+                          ? 'Spending increased from last month'
+                          : 'Spending decreased from last month'
+                      }
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -181,12 +264,20 @@ export default function Dashboard() {
                 <h3 className="text-xl font-bold">Recent Expenses</h3>
                 <button
                   onClick={() => setIsExpensesModalOpen(true)}
-                  className="text-indigo-600 hover:text-indigo-700 text-sm font-medium"
+                  className={`text-sm font-medium transition-colors ${
+                    categories.length === 0 
+                      ? 'text-gray-400 hover:text-gray-500' 
+                      : lastMonthDiff === 0
+                        ? 'text-indigo-600 hover:text-indigo-700'
+                        : lastMonthDiff > 0
+                          ? 'text-rose-600 hover:text-rose-700'
+                          : 'text-emerald-600 hover:text-emerald-700'
+                  }`}
                 >
                   See All
                 </button>
               </div>
-              <ExpenseList expenses={expenses} />
+              <ExpenseList expenses={expenses} onExpenseClick={handleExpenseClick} />
             </div>
           </div>
 
@@ -249,23 +340,39 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <nav className="fixed bottom-0 w-full bg-white border-t">
-        <div className="max-w-7xl mx-auto px-4">
-          <div className="flex justify-between items-center py-4">
-            <Home className="nav-icon" />
-            <BarChart2 className="nav-icon" />
-            <div className="relative -top-8">
+      <nav className="fixed bottom-4 left-1/2 transform -translate-x-1/2 w-[calc(100%-2rem)] max-w-md mx-auto z-50">
+        <div className="bg-white/80 backdrop-blur-lg border border-gray-200 rounded-2xl shadow-lg">
+          <div className="flex justify-between items-center h-16 px-8">
+            <button className="p-2 hover:bg-gray-100/80 rounded-xl transition-colors">
+              <Home className="h-6 w-6 text-gray-600" />
+            </button>
+            <button className="p-2 hover:bg-gray-100/80 rounded-xl transition-colors">
+              <BarChart2 className="h-6 w-6 text-gray-600" />
+            </button>
+            <div className="relative -top-6">
               <button
                 onClick={() => setIsAddExpenseModalOpen(true)}
-                className="bg-pink-500 p-4 rounded-full text-white shadow-lg hover:bg-pink-600 transition-colors"
+                className={`p-4 rounded-full text-white shadow-lg transition-all hover:shadow-xl transform hover:scale-105 ${
+                  categories.length === 0 
+                    ? 'bg-gray-400 cursor-not-allowed' 
+                    : lastMonthDiff === 0
+                      ? 'bg-indigo-500 hover:bg-indigo-600'
+                      : lastMonthDiff > 0
+                        ? 'bg-rose-500 hover:bg-rose-600'
+                        : 'bg-emerald-500 hover:bg-emerald-600'
+                }`}
                 disabled={categories.length === 0}
                 title={categories.length === 0 ? "Add a category first" : "Add expense"}
               >
                 <PlusCircle className="h-6 w-6" />
               </button>
             </div>
-            <Bell className="nav-icon" />
-            <UserIcon className="nav-icon" />
+            <button className="p-2 hover:bg-gray-100/80 rounded-xl transition-colors">
+              <Bell className="h-6 w-6 text-gray-600" />
+            </button>
+            <button className="p-2 hover:bg-gray-100/80 rounded-xl transition-colors">
+              <UserIcon className="h-6 w-6 text-gray-600" />
+            </button>
           </div>
         </div>
       </nav>
@@ -288,6 +395,17 @@ export default function Dashboard() {
         onClose={() => setIsExpensesModalOpen(false)}
         expenses={allExpenses}
         categories={categories}
+      />
+
+      <EditExpenseModal
+        isOpen={isEditExpenseModalOpen}
+        onClose={() => {
+          setIsEditExpenseModalOpen(false);
+          setSelectedExpense(null);
+        }}
+        expense={selectedExpense}
+        categories={categories}
+        onExpenseUpdated={fetchData}
       />
     </div>
   );

@@ -1,0 +1,91 @@
+/* Update the calendar styles */
+.rdp {
+  margin: 0;
+}
+
+.rdp-month {
+  background: white;
+  border-radius: 0.75rem;
+}
+
+.rdp-day {
+  width: 40px;
+  height: 40px;
+  border-radius: 0.5rem;
+}
+
+.rdp-day:hover:not([disabled]) {
+  background-color: #f3f4f6;
+}
+
+.rdp-day_selected,
+.rdp-day_selected:focus,
+.rdp-day_selected:active,
+.rdp-day_selected:hover {
+  background: linear-gradient(to right, #6366f1, #ec4899) !important;
+  color: white !important;
+  font-weight: 500 !important;
+}
+
+.rdp-button:focus-visible:not([disabled]) {
+  background: linear-gradient(to right, #6366f1, #ec4899) !important;
+  color: white !important;
+}
+
+.rdp-head_cell {
+  font-weight: 500;
+  color: #6b7280;
+  font-size: 0.875rem;
+}
+
+.rdp-caption_label {
+  font-weight: 500;
+  font-size: 1rem;
+  color: #374151;
+}
+
+.rdp-nav_button:hover {
+  background-color: #f3f4f6;
+  border-radius: 0.5rem;
+}
+
+/* Remove any transitions or animations that might interfere */
+.rdp-day_selected {
+  transition: none !important;
+}
+
+/* Force the gradient on all states */
+.rdp-day_selected::before,
+.rdp-day_selected::after {
+  background: linear-gradient(to right, #6366f1, #ec4899) !important;
+}
+
+/* Override any default styles */
+.rdp-button[aria-selected="true"],
+.rdp-day_selected button,
+.rdp-day_selected:hover button {
+  background: linear-gradient(to right, #6366f1, #ec4899) !important;
+  color: white !important;
+}
+
+/* Add these styles to your existing calendar styles */
+.rdp-caption {
+  position: relative;
+  padding: 0 !important;
+  margin-bottom: 0.5rem !important;
+}
+
+.rdp-nav {
+  display: none; /* Hide default navigation */
+}
+
+.rdp-head_cell {
+  font-weight: 500 !important;
+  color: #6b7280 !important;
+  font-size: 0.875rem !important;
+  padding-top: 0.5rem !important;
+}
+
+.rdp-tbody {
+  margin-top: 0.5rem !important;
+} 
