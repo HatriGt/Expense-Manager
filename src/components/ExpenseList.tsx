@@ -6,9 +6,10 @@ import { LucideProps } from 'lucide-react';
 
 interface ExpenseListProps {
   expenses: Expense[];
+  onExpenseClick?: (expense: Expense) => void;
 }
 
-export default function ExpenseList({ expenses }: ExpenseListProps) {
+export default function ExpenseList({ expenses, onExpenseClick }: ExpenseListProps) {
   // Sort expenses by created_at first, then group by date
   const sortedAndGroupedExpenses = expenses
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
@@ -43,7 +44,11 @@ export default function ExpenseList({ expenses }: ExpenseListProps) {
                   null;
                 
                 return (
-                  <div key={expense.id} className="flex items-center justify-between">
+                  <div 
+                    key={expense.id} 
+                    className="flex items-center justify-between cursor-pointer hover:bg-gray-50 p-2 rounded-lg transition-colors"
+                    onClick={() => onExpenseClick?.(expense)}
+                  >
                     <div className="flex items-center space-x-3">
                       <div className="p-2 rounded-lg" style={{ backgroundColor: `${expense.category?.color}20` }}>
                         {IconComponent && (

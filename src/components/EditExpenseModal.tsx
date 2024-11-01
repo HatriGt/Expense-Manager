@@ -1,19 +1,19 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
-import { Category } from '../types';
-import { X, Check, Calendar, ChevronDown, ChevronUp, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Category, Expense } from '../types';
+import { X, Check, Calendar, ChevronDown, ChevronUp } from 'lucide-react';
 import { DayPicker, CaptionProps, useNavigation } from 'react-day-picker';
 import { format } from 'date-fns';
 import 'react-day-picker/dist/style.css';
 
-interface AddExpenseModalProps {
+interface EditExpenseModalProps {
   isOpen: boolean;
   onClose: () => void;
+  expense: Expense | null;
   categories: Category[];
-  onExpenseAdded: () => void;
+  onExpenseUpdated: () => void;
 }
 
-// Add this CSS-in-JS style object at the top of your component
 const dayPickerStyles = {
   button: {
     backgroundColor: 'transparent !important'
@@ -28,7 +28,6 @@ const dayPickerStyles = {
   }
 };
 
-// Add this custom caption component
 function CustomCaption(props: CaptionProps) {
   const { displayMonth } = props;
   const { goToMonth } = useNavigation();
@@ -131,11 +130,18 @@ function CustomCaption(props: CaptionProps) {
   );
 }
 
-export default function AddExpenseModal({ isOpen, onClose, categories, onExpenseAdded }: AddExpenseModalProps) {
+export default function EditExpenseModal({ 
+  isOpen, 
+  onClose, 
+  expense, 
+  categories, 
+  onExpenseUpdated 
+}: EditExpenseModalProps) {
   const [amount, setAmount] = useState('');
   const [tag, setTag] = useState('');
   const [categoryId, setCategoryId] = useState('');
   const [selectedDate, setSelectedDate] = useState(new Date());
+  const [isCalendarOpen, setIsCalendarOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
@@ -143,15 +149,13 @@ export default function AddExpenseModal({ isOpen, onClose, categories, onExpense
   const [tags, setTags] = useState<{tag: string}[]>([]);
   const [tagSearchTerm, setTagSearchTerm] = useState('');
   const [isTagDropdownOpen, setIsTagDropdownOpen] = useState(false);
-  const [isCalendarOpen, setIsCalendarOpen] = useState(false);
 
   useEffect(() => {
-    if (isOpen) {
-      // Reset all form fields when modal opens
-      setAmount('');
-      setTag('');
-      setCategoryId('');
-      setSelectedDate(new Date());
+    if (isOpen && expense) {
+      setAmount(expense.amount.toString());
+      setTag(expense.tag || '');
+      setCategoryId(expense.category_id);
+      setSelectedDate(new Date(expense.date));
       setSearchTerm('');
       setTagSearchTerm('');
       setError('');
@@ -160,20 +164,28 @@ export default function AddExpenseModal({ isOpen, onClose, categories, onExpense
       setIsTagDropdownOpen(false);
       setIsCalendarOpen(false);
     }
-  }, [isOpen]);
+  }, [isOpen, expense]);
 
   useEffect(() => {
     fetchTags();
   }, []);
 
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (isCalendarOpen && !(event.target as Element).closest('.rdp')) {
+        setIsCalendarOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isCalendarOpen]);
+
   const fetchTags = async () => {
     try {
-      // Get the current user
       const { data: { user } } = await supabase.auth.getUser();
-      
       if (!user) throw new Error('No user found');
 
-      // Fetch distinct tags using raw SQL query
       const { data, error } = await supabase
         .rpc('get_distinct_tags', { user_id_param: user.id });
       if (error) throw error;
@@ -184,6 +196,37 @@ export default function AddExpenseModal({ isOpen, onClose, categories, onExpense
     }
   };
 
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!expense) return;
+    
+    setError('');
+    setIsSubmitting(true);
+    
+    try {
+      const { error: supabaseError } = await supabase
+        .from('expenses')
+        .update({
+          amount: parseFloat(amount),
+          tag,
+          category_id: categoryId,
+          date: format(selectedDate, 'yyyy-MM-dd'),
+        })
+        .eq('id', expense.id);
+
+      if (supabaseError) throw supabaseError;
+      
+      onExpenseUpdated();
+      onClose();
+    } catch (err) {
+      setError('Failed to update expense. Please try again.');
+      console.error('Error updating expense:', err);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // Reuse the same UI components from AddExpenseModal
   const filteredTags = tags.filter(desc =>
     desc.tag.toLowerCase().includes(tagSearchTerm.toLowerCase())
   );
@@ -206,140 +249,13 @@ export default function AddExpenseModal({ isOpen, onClose, categories, onExpense
     setIsDropdownOpen(false);
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError('');
-    setIsSubmitting(true);
-    
-    try {
-      // Get the current user
-      const { data: { user } } = await supabase.auth.getUser();
-      
-      if (!user) throw new Error('No user found');
-
-      const { error: supabaseError } = await supabase
-        .from('expenses')
-        .insert([
-          {
-            amount: parseFloat(amount),
-            tag,
-            category_id: categoryId,
-            date: format(selectedDate, 'yyyy-MM-dd'),
-            user_id: user.id
-          },
-        ]);
-
-      if (supabaseError) throw supabaseError;
-      
-      onExpenseAdded();
-      onClose();
-      setAmount('');
-      setTag('');
-      setCategoryId('');
-      setSelectedDate(new Date());
-    } catch (err) {
-      setError('Failed to add expense. Please try again.');
-      console.error('Error adding expense:', err);
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  const tagSelector = (
-    <div className="relative">
-      <label className="block text-sm font-medium text-gray-700">Tag</label>
-      <div className="relative mt-1">
-        <input
-          type="text"
-          value={tagSearchTerm || tag}
-          onChange={(e) => {
-            setTagSearchTerm(e.target.value);
-            setTag(e.target.value);
-            setIsTagDropdownOpen(true);
-          }}
-          onFocus={() => setIsTagDropdownOpen(true)}
-          className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2"
-          placeholder="What did you spend on? (optional) Add/Choose any Tag"
-        />
-        {isTagDropdownOpen && tagSearchTerm && filteredTags.length > 0 && (
-          <div className="absolute z-10 mt-1 w-full bg-white shadow-lg max-h-60 rounded-md py-1 text-base overflow-auto border border-gray-200">
-            {filteredTags.map((desc) => (
-              <div
-                key={desc.tag}
-                className="cursor-pointer px-4 py-2 hover:bg-gray-100"
-                onClick={() => handleTagSelect(desc.tag)}
-              >
-                {desc.tag}
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-
-  const categorySelector = (
-    <div className="relative">
-      <label className="block text-sm font-medium text-gray-700">Category</label>
-      <div className="relative mt-1">
-        <input
-          type="text"
-          value={searchTerm}
-          onChange={(e) => {
-            setSearchTerm(e.target.value);
-            setIsDropdownOpen(true);
-          }}
-          onFocus={() => setIsDropdownOpen(true)}
-          className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2"
-          placeholder={selectedCategory?.name || "Search categories..."}
-        />
-        {isDropdownOpen && (
-          <div className="absolute z-10 mt-1 w-full bg-white shadow-lg max-h-60 rounded-md py-1 text-base overflow-auto border border-gray-200">
-            {filteredCategories.length > 0 ? (
-              filteredCategories.map((category) => (
-                <div
-                  key={category.id}
-                  className={`cursor-pointer px-4 py-2 hover:bg-gray-100 flex justify-between items-center ${
-                    category.id === categoryId ? 'bg-gray-50' : ''
-                  }`}
-                  onClick={() => handleCategorySelect(category.id)}
-                >
-                  <span>{category.name}</span>
-                  {category.id === categoryId && (
-                    <Check className="h-4 w-4 text-indigo-600" />
-                  )}
-                </div>
-              ))
-            ) : (
-              <div className="px-4 py-2 text-sm text-gray-500">
-                No categories found
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (isCalendarOpen && !(event.target as Element).closest('.rdp')) {
-        setIsCalendarOpen(false);
-      }
-    };
-
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [isCalendarOpen]);
-
-  if (!isOpen) return null;
+  if (!isOpen || !expense) return null;
 
   return (
     <div className="fixed inset-0 bg-black/30 flex items-center justify-center p-4 z-50"
          onClick={(e) => {
            if (e.target === e.currentTarget) {
              setIsDropdownOpen(false);
-             setIsCalendarOpen(false);
              onClose();
            }
          }}>
@@ -355,9 +271,9 @@ export default function AddExpenseModal({ isOpen, onClose, categories, onExpense
 
         <div className="mb-6">
           <h2 className="text-2xl font-bold bg-gradient-to-r from-indigo-500 to-pink-500 bg-clip-text text-transparent">
-            Add New Expense
+            Edit Expense
           </h2>
-          <p className="text-gray-500 text-sm mt-1">Track your spending with detailed information</p>
+          <p className="text-gray-500 text-sm mt-1">Update your expense details</p>
         </div>
         
         {error && (
@@ -519,11 +435,11 @@ export default function AddExpenseModal({ isOpen, onClose, categories, onExpense
               className="px-5 py-2.5 bg-gradient-to-r from-indigo-500 to-pink-500 text-white rounded-xl hover:opacity-90 transition-opacity disabled:opacity-50 shadow-sm"
               disabled={isSubmitting}
             >
-              {isSubmitting ? 'Adding...' : 'Add Expense'}
+              {isSubmitting ? 'Updating...' : 'Update Expense'}
             </button>
           </div>
         </form>
       </div>
     </div>
   );
-}
+} 
