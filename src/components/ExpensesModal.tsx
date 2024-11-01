@@ -1,15 +1,15 @@
-import React, { useState, useEffect, Fragment } from 'react';
-import { X, ArrowUpDown, ChevronDown, Calendar, Filter, Check, Search } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { X, ArrowUpDown, Calendar, Filter, Check, Search } from 'lucide-react';
 import { Category, Expense } from '../types';
 import * as Icons from 'lucide-react';
 import { format } from 'date-fns';
 import { Dialog, Switch } from '@headlessui/react';
 import { supabase } from '../lib/supabase';
+import { LucideProps } from 'lucide-react';
 
 interface ExpensesModalProps {
   isOpen: boolean;
   onClose: () => void;
-  expenses: Expense[];
   categories: Category[];
 }
 
@@ -51,94 +51,82 @@ function CenterModal({ isOpen, onClose, title, children }: BottomSheetProps) {
   );
 }
 
-export default function ExpensesModal({ isOpen, onClose, expenses, categories }: ExpensesModalProps) {
-  const [filteredExpenses, setFilteredExpenses] = useState<Expense[]>([]);
+// Add this interface to define the structure of expenses from the materialized view
+interface ExpenseWithCategory extends Omit<Expense, 'category'> {
+  category_name: string;
+  category_id: string;
+  category_icon: string;
+  category_color: string;
+}
+
+// Add this interface after the existing interfaces
+interface SearchTag {
+  id: string;
+  text: string;
+}
+
+export default function ExpensesModal({ isOpen, onClose, categories }: ExpensesModalProps) {
+  const getCurrentMonthRange = () => {
+    const today = new Date();
+    const start = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-01`;
+    const end = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    return {
+      start,
+      end
+    };
+  };
+
+  const [filteredExpenses, setFilteredExpenses] = useState<ExpenseWithCategory[]>([]);
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
   const [sortBy, setSortBy] = useState<SortType>('date');
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
   const [isCategorySheetOpen, setIsCategorySheetOpen] = useState(false);
   const [isDateSheetOpen, setIsDateSheetOpen] = useState(false);
   const [isSortSheetOpen, setIsSortSheetOpen] = useState(false);
-  const [searchTerms, setSearchTerms] = useState<string[]>([]);
-
-  // Helper function to get current month's date range
-  const getCurrentMonthRange = () => {
-    const today = new Date();
-    const monthStart = today.toISOString().slice(0, 7) + '-01';
-    const endDay = today;
-    
-    return {
-      start: monthStart,
-      end: endDay.toISOString().split('T')[0]
-    };
-  };
-
-  // Initialize date range with current month
   const [dateRange, setDateRange] = useState(getCurrentMonthRange());
+  const [searchTerms, setSearchTerms] = useState<SearchTag[]>([]);
+  const [inputValue, setInputValue] = useState('');
+  const [isSearching, setIsSearching] = useState(false);
 
-  // Reset filters when modal opens
   useEffect(() => {
     if (isOpen) {
-      // Reset category filter
+      setSearchTerms([]);
+      setInputValue('');
+      setIsSearching(false);
+      
       setSelectedCategories([]);
-      
-      // Reset date range to current month
       setDateRange(getCurrentMonthRange());
-      
-      // Reset sort to default (date, descending)
       setSortBy('date');
       setSortOrder('desc');
-      setSearchTerms([]);
-
-      // Close any open filter sheets/popups
       setIsCategorySheetOpen(false);
       setIsDateSheetOpen(false);
       setIsSortSheetOpen(false);
     }
   }, [isOpen]);
 
-  useEffect(() => {
-    if (isOpen) {
-      fetchFilteredExpenses();
-    }
-  }, [isOpen, selectedCategories, dateRange, sortBy, sortOrder, searchTerms]);
-
-  const fetchFilteredExpenses = async () => {
+  const fetchFilteredExpenses = useCallback(async (searchConditions?: string) => {
     try {
-      let query = supabase
-        .from('expenses')
-        .select(`
-          *,
-          category:categories(*)
-        `);
+      const { data: { user } } = await supabase.auth.getUser();
+      
+      if (!user) throw new Error('No user found');
 
-      // Apply date range filter
-      query = query
+      let query = supabase
+        .from('expenses_with_categories')
+        .select('*')
+        .eq('user_id', user.id)
         .gte('date', dateRange.start)
         .lte('date', dateRange.end);
 
-      // Apply category filter
       if (selectedCategories.length > 0) {
         query = query.in('category_id', selectedCategories);
       }
 
-      // Apply search terms (if any)
-      if (searchTerms.length > 0) {
-        const searchConditions = searchTerms.map(term => {
-          const searchTerm = `%${term.toLowerCase()}%`;
-          return `(LOWER(tag) LIKE '${searchTerm}' OR EXISTS (
-            SELECT 1 FROM categories 
-            WHERE categories.id = expenses.category_id 
-            AND LOWER(categories.name) LIKE '${searchTerm}'
-          ))`;
-        }).join(' OR ');
-        
+      if (searchConditions) {
         query = query.or(searchConditions);
       }
 
-      // Apply sorting
       if (sortBy === 'date') {
-        query = query.order('date', { ascending: sortOrder === 'asc' });
+        query = query.order('created_at', { ascending: sortOrder === 'asc' });
       } else {
         query = query.order('amount', { ascending: sortOrder === 'asc' });
       }
@@ -151,11 +139,17 @@ export default function ExpensesModal({ isOpen, onClose, expenses, categories }:
     } catch (error) {
       console.error('Error fetching filtered expenses:', error);
     }
-  };
+  }, [dateRange, selectedCategories, sortBy, sortOrder]);
+
+  useEffect(() => {
+    if (isOpen) {
+      fetchFilteredExpenses();
+    }
+  }, [isOpen, fetchFilteredExpenses]);
 
   const totalExpenses = filteredExpenses.reduce((sum, expense) => sum + expense.amount, 0);
 
-  const groupExpensesByDate = (expenses: Expense[]) => {
+  const groupExpensesByDate = (expenses: ExpenseWithCategory[]) => {
     return expenses.reduce((groups, expense) => {
       const date = format(new Date(expense.date), 'EEEE, d');
       if (!groups[date]) {
@@ -163,7 +157,7 @@ export default function ExpensesModal({ isOpen, onClose, expenses, categories }:
       }
       groups[date].push(expense);
       return groups;
-    }, {} as Record<string, Expense[]>);
+    }, {} as Record<string, ExpenseWithCategory[]>);
   };
 
   if (!isOpen) return null;
@@ -207,20 +201,42 @@ export default function ExpensesModal({ isOpen, onClose, expenses, categories }:
     </div>
   );
 
-  // Handle adding and removing search terms
-  const handleSearchInput = (value: string) => {
-    if (value.endsWith(' ')) {
-      const term = value.trim();
-      if (term && !searchTerms.includes(term)) {
-        setSearchTerms([...searchTerms, term]);
-      }
-      return '';
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter' && inputValue) {
+      addSearchTerm(inputValue);
+    } else if (e.key === 'Backspace' && !inputValue && searchTerms.length > 0) {
+      removeSearchTerm(searchTerms[searchTerms.length - 1].id);
     }
-    return value;
   };
 
-  const removeSearchTerm = (termToRemove: string) => {
-    setSearchTerms(searchTerms.filter(term => term !== termToRemove));
+  const addSearchTerm = (term: string) => {
+    const trimmedTerm = term.trim();
+    if (trimmedTerm && !searchTerms.some(t => t.text.toLowerCase() === trimmedTerm.toLowerCase())) {
+      const newTerm = { id: crypto.randomUUID(), text: trimmedTerm };
+      setSearchTerms(prev => [...prev, newTerm]);
+      setInputValue('');
+      // Trigger search immediately
+      handleSearch([...searchTerms, newTerm]);
+    }
+  };
+
+  const removeSearchTerm = (id: string) => {
+    setSearchTerms(prev => {
+      const newTerms = prev.filter(term => term.id !== id);
+      // Trigger search immediately after removal
+      handleSearch(newTerms);
+      return newTerms;
+    });
+  };
+
+  const handleSearch = (terms: SearchTag[]) => {
+    setIsSearching(true);
+    const searchConditions = terms.map(term => 
+      `category_name.ilike.%${term.text}%,tag.ilike.%${term.text}%`
+    ).join(',');
+    
+    // Update fetchFilteredExpenses with the new search terms
+    fetchFilteredExpenses(searchConditions).finally(() => setIsSearching(false));
   };
 
   return (
@@ -242,21 +258,21 @@ export default function ExpensesModal({ isOpen, onClose, expenses, categories }:
             <p className="text-gray-600 mt-2">Total: ${totalExpenses.toFixed(2)}</p>
           </div>
 
-          {/* Updated Search Box */}
+          {/* Filters Section */}
           <div className="p-4 border-b bg-white sticky top-0 z-10">
             <div className="mb-4">
               <div className="relative">
-                <div className="flex flex-wrap items-center gap-2 w-full pl-10 pr-4 py-2 border border-gray-300 rounded-md focus-within:ring-2 focus-within:ring-indigo-500 focus-within:border-transparent">
-                  {searchTerms.map((term, index) => (
-                    <span 
-                      key={index}
-                      className="bg-indigo-100 text-indigo-800 px-2 py-1 rounded-md text-sm flex items-center gap-1"
+                <div className="flex flex-wrap items-center gap-2 w-full pl-10 pr-4 py-2 border rounded-lg focus-within:ring-2 focus-within:ring-indigo-500 focus-within:border-transparent">
+                  {searchTerms.map(term => (
+                    <span
+                      key={term.id}
+                      className="flex items-center gap-1 bg-indigo-100 text-indigo-800 px-2 py-1 rounded-full text-sm"
                     >
-                      {term}
+                      {term.text}
                       <button
-                        onClick={() => removeSearchTerm(term)}
+                        onClick={() => removeSearchTerm(term.id)}
                         className="hover:text-indigo-600"
-                        aria-label={`Remove ${term} from search`}
+                        aria-label="Remove search term"
                       >
                         <X className="h-3 w-3" />
                       </button>
@@ -264,29 +280,22 @@ export default function ExpensesModal({ isOpen, onClose, expenses, categories }:
                   ))}
                   <input
                     type="text"
-                    className="flex-1 outline-none min-w-[100px]"
-                    placeholder={searchTerms.length ? '' : 'Search in tags and categories...'}
-                    onChange={(e) => {
-                      const newValue = handleSearchInput(e.target.value);
-                      e.target.value = newValue;
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && e.currentTarget.value.trim()) {
-                        const term = e.currentTarget.value.trim();
-                        if (!searchTerms.includes(term)) {
-                          setSearchTerms([...searchTerms, term]);
-                        }
-                        e.currentTarget.value = '';
-                      } else if (e.key === 'Backspace' && !e.currentTarget.value && searchTerms.length > 0) {
-                        setSearchTerms(searchTerms.slice(0, -1));
-                      }
-                    }}
+                    placeholder={searchTerms.length === 0 ? "Search categories or tags..." : ""}
+                    value={inputValue}
+                    onChange={(e) => setInputValue(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    className="flex-1 outline-none min-w-[150px]"
                   />
                 </div>
-                <Search className="h-5 w-5 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  {isSearching ? (
+                    <div className="h-4 w-4 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <Search className="h-4 w-4 text-gray-400" />
+                  )}
+                </div>
               </div>
             </div>
-            
             <MobileFilters />
             <DesktopFilters />
           </div>
@@ -298,25 +307,27 @@ export default function ExpensesModal({ isOpen, onClose, expenses, categories }:
                 <div key={date} className="p-4">
                   <p className="text-sm text-gray-600 mb-2">{date}</p>
                   <div className="space-y-3">
-                    {dateExpenses.map((expense) => {
-                      const IconComponent = Icons[expense.category?.icon as keyof typeof Icons];
+                    {(dateExpenses as ExpenseWithCategory[]).map((expense) => {
+                      const IconComponent = expense.category_icon ? 
+                        (Icons[expense.category_icon as keyof typeof Icons] as React.FC<LucideProps>) : 
+                        null;
                       
                       return (
                         <div key={expense.id} className="flex items-center justify-between">
                           <div className="flex items-center space-x-3">
                             <div 
                               className="p-2 rounded-lg" 
-                              style={{ backgroundColor: `${expense.category?.color}20` }}
+                              style={{ backgroundColor: `${expense.category_color}20` }}
                             >
                               {IconComponent && (
                                 <IconComponent
                                   className="h-4 w-4"
-                                  style={{ color: expense.category?.color }}
+                                  style={{ color: expense.category_color }}
                                 />
                               )}
                             </div>
                             <div>
-                              <p className="font-medium text-sm">{expense.category?.name}</p>
+                              <p className="font-medium text-sm">{expense.category_name}</p>
                               {expense.tag && (
                                 <p className="text-xs text-gray-500">{expense.tag}</p>
                               )}
@@ -336,7 +347,6 @@ export default function ExpensesModal({ isOpen, onClose, expenses, categories }:
         </div>
       </div>
 
-      {/* Replace BottomSheet with CenterModal */}
       <CenterModal
         isOpen={isCategorySheetOpen}
         onClose={() => setIsCategorySheetOpen(false)}
@@ -382,7 +392,6 @@ export default function ExpensesModal({ isOpen, onClose, expenses, categories }:
               value={dateRange.start}
               onChange={(e) => {
                 setDateRange(prev => ({ ...prev, start: e.target.value }));
-                // Close modal if both dates are selected
                 if (dateRange.end) {
                   setIsDateSheetOpen(false);
                 }
@@ -398,7 +407,6 @@ export default function ExpensesModal({ isOpen, onClose, expenses, categories }:
               value={dateRange.end}
               onChange={(e) => {
                 setDateRange(prev => ({ ...prev, end: e.target.value }));
-                // Close modal if both dates are selected
                 if (dateRange.start) {
                   setIsDateSheetOpen(false);
                 }
@@ -416,7 +424,6 @@ export default function ExpensesModal({ isOpen, onClose, expenses, categories }:
         title="Sort By"
       >
         <div className="space-y-4">
-          {/* Sort Field Selection */}
           <div className="space-y-2">
             <button
               className={`w-full px-4 py-3 text-left flex items-center justify-between hover:bg-gray-50 rounded-lg ${
@@ -444,7 +451,6 @@ export default function ExpensesModal({ isOpen, onClose, expenses, categories }:
             </button>
           </div>
 
-          {/* Sort Order Switch */}
           <div className="border-t pt-4">
             <Switch.Group>
               <div className="flex items-center justify-between">
